@@ -1,0 +1,109 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+// The independent release key and its passwords stay outside the source tree.
+// Override with -PcourseLiteSigningProperties=/absolute/path/signing.properties.
+def signingPropertiesPath = providers.gradleProperty('courseLiteSigningProperties')
+        .getOrElse('../../build-output/course-lite-signing/signing.properties')
+def signingPropertiesFile = rootProject.file(signingPropertiesPath)
+def releaseSigningProperties = new Properties()
+if (signingPropertiesFile.isFile()) {
+    signingPropertiesFile.withInputStream { releaseSigningProperties.load(it) }
+}
+def requiredSigningKeys = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']
+def hasReleaseSigning = requiredSigningKeys.every {
+    releaseSigningProperties.getProperty(it)?.trim()
+}
+
+android {
+    namespace 'cn.local.bitcourse'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'cn.local.bitcourse'
+        minSdk 26
+        targetSdk 35
+        versionCode 4
+        versionName '1.0.3'
+    }
+
+    signingConfigs {
+        independentRelease {
+            if (hasReleaseSigning) {
+                storeFile new File(signingPropertiesFile.parentFile,
+                        releaseSigningProperties.getProperty('storeFile'))
+                storePassword releaseSigningProperties.getProperty('storePassword')
+                keyAlias releaseSigningProperties.getProperty('keyAlias')
+                keyPassword releaseSigningProperties.getProperty('keyPassword')
+                storeType 'PKCS12'
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            signingConfig signingConfigs.independentRelease
+        }
+    }
+
+    buildFeatures {
+        compose true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+// A missing private key must never silently produce an unsigned release APK.
+def verifyReleaseSigning = tasks.register('verifyReleaseSigning') {
+    doLast {
+        if (!hasReleaseSigning) {
+            throw new GradleException('Release signing is not configured. Supply the external '
+                    + 'signing.properties with -PcourseLiteSigningProperties, or build assembleDebug.')
+        }
+        def privateKeyFile = new File(signingPropertiesFile.parentFile,
+                releaseSigningProperties.getProperty('storeFile'))
+        if (!privateKeyFile.isFile()) {
+            throw new GradleException('The independent CourseLite release keystore was not found.')
+        }
+    }
+}
+tasks.configureEach {
+    if (name == 'preReleaseBuild') {
+        dependsOn verifyReleaseSigning
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.activity:activity-compose:1.8.2'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+
+    implementation platform('androidx.compose:compose-bom:2024.01.00')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.compose.material3:material3:1.2.0-rc01'
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+
+    implementation 'com.google.code.gson:gson:2.11.0'
+    testImplementation 'junit:junit:4.13.2'
+}
